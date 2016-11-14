@@ -14,5 +14,3 @@ RUN wget https://deb.nodesource.com/setup_6.x -O setup-node.sh \
  && rm setup-node.sh \
  && apt-get install --yes nodejs
 ENV PATH /go/app/node_modules/.bin:$PATH
-
-ENTRYPOINT ["./test.sh"]
