@@ -22,12 +22,12 @@ resources:
     - docker-images/api
 
 jobs:
-- name: unit-tests
+- name: test
   public: true
   plan:
   - get: anubot
     trigger: true
-  - task: unit-tests
+  - task: test
     config:
       image_resource:
         type: docker-image
@@ -57,7 +57,7 @@ jobs:
     - get: anubot
       trigger: true
       passed:
-      - unit-tests
+      - test
     - get: api-image-dockerfile
       trigger: true
   - aggregate:
