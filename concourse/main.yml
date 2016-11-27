@@ -151,3 +151,40 @@ jobs:
       tag_as_latest: true
       cache: true
       cache_tag: latest
+
+- name: deploy
+  public: true
+  plan:
+  - get: anubot
+    trigger: true
+    passed:
+    - build
+  - task: deploy
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot
+      params:
+        PROD_KEY: {{prod_key}}
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+
+          pushd anubot > /dev/null
+            sha=$(git rev-parse @)
+          popd > /dev/null
+
+          mkdir -p ~/.ssh
+          ssh-keyscan -Hp 42224 anubot.io >> ~/.ssh/known_hosts
+          echo "$PROD_KEY" > id_rsa
+          chmod 400 id_rsa
+          echo "API_TAG=$sha" | ssh core@anubot.io -i id_rsa -p 42224 "cat > /home/core/api-env; sudo systemctl restart api"
