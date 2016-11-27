@@ -6,6 +6,21 @@ resources:
     uri: https://github.com/jasonkeene/anubot
     branch: master
 
+- name: api-image
+  type: docker-image
+  source:
+    repository: anubot/api
+    username: {{docker_hub_username}}
+    password: {{docker_hub_password}}
+
+- name: api-image-dockerfile
+  type: git
+  source:
+    uri: https://github.com/jasonkeene/anubot-ci
+    branch: master
+    paths:
+    - docker-images/api
+
 jobs:
 - name: unit-tests
   public: true
@@ -29,6 +44,7 @@ jobs:
         - |
           #!/bin/bash
           set -e
+
           cd anubot
           export GOPATH=$PWD
           export PATH=$PWD/bin:$PWD/app/node_modules/.bin:$PATH
@@ -37,10 +53,13 @@ jobs:
 - name: build
   public: true
   plan:
-  - get: anubot
-    trigger: true
-    passed:
-    - unit-tests
+  - aggregate:
+    - get: anubot
+      trigger: true
+      passed:
+      - unit-tests
+    - get: api-image-dockerfile
+      trigger: true
   - aggregate:
     - task: build-api
       config:
@@ -61,6 +80,7 @@ jobs:
           - |
             #!/bin/bash
             set -e
+
             export GOPATH=$PWD/anubot
             GOOS=linux GOARCH=amd64 go build -o api/api_linux_amd64 anubot/cmd/api
   - task: upload-artifacts
@@ -84,9 +104,50 @@ jobs:
         - |
           #!/bin/bash
           set -e
+
           pushd anubot > /dev/null
             sha=$(git rev-parse @)
           popd > /dev/null
+
           mkdir "$sha"
           cp -R api "$sha/"
+
           aws s3 sync "$sha" "s3://anubot/builds/$sha"
+  - task: build-api-image
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot
+      - name: api
+      - name: api-image-dockerfile
+      outputs:
+      - name: build-api-image
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+
+          mkdir build-api-image/build
+          cp -R api-image-dockerfile/docker-images/api/* build-api-image/build/
+
+          cp api/api_linux_amd64 build-api-image/build/api
+
+          pushd anubot > /dev/null
+            sha=$(git rev-parse @)
+          popd > /dev/null
+          echo "$sha" > build-api-image/tag
+  - put: api-image
+    params:
+      build: build-api-image/build
+      tag: build-api-image/tag
+      tag_as_latest: true
+      cache: true
+      cache_tag: latest
