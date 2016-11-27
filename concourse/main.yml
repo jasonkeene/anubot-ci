@@ -35,72 +35,13 @@ jobs:
           ./test.sh ci
 
 - name: build
+  public: true
   plan:
   - get: anubot
     trigger: true
     passed:
     - unit-tests
   - aggregate:
-#    - task: build-electron-windows
-#      config:
-#        image_resource:
-#          type: docker-image
-#          source:
-#            repository: anubot/build
-#            tag: latest
-#        platform: linux
-#        inputs:
-#        - name: anubot
-#        outputs:
-#        - name: electron-windows
-#        run:
-#          path: bash
-#          args:
-#          - -c
-#          - |
-#            #!/bin/bash
-#            set -e
-#            echo "need to build electron app for windows"
-#    - task: build-electron-mac
-#      config:
-#        image_resource:
-#          type: docker-image
-#          source:
-#            repository: anubot/build
-#            tag: latest
-#        platform: linux
-#        inputs:
-#        - name: anubot
-#        outputs:
-#        - name: electron-mac
-#        run:
-#          path: bash
-#          args:
-#          - -c
-#          - |
-#            #!/bin/bash
-#            set -e
-#            echo "need to build electron app for mac"
-#    - task: build-electron-linux
-#      config:
-#        image_resource:
-#          type: docker-image
-#          source:
-#            repository: anubot/build
-#            tag: latest
-#        platform: linux
-#        inputs:
-#        - name: anubot
-#        outputs:
-#        - name: electron-linux
-#        run:
-#          path: bash
-#          args:
-#          - -c
-#          - |
-#            #!/bin/bash
-#            set -e
-#            echo "need to build electron app for linux"
     - task: build-api
       config:
         image_resource:
@@ -132,9 +73,6 @@ jobs:
       platform: linux
       inputs:
       - name: anubot
-#      - name: electron-windows
-#      - name: electron-mac
-#      - name: electron-linux
       - name: api
       params:
         AWS_ACCESS_KEY_ID: {{s3_access_key_id}}
@@ -146,9 +84,9 @@ jobs:
         - |
           #!/bin/bash
           set -e
-          pushd anubot
+          pushd anubot > /dev/null
             sha=$(git rev-parse @)
-          popd
+          popd > /dev/null
           mkdir "$sha"
           cp -R api "$sha/"
           aws s3 sync "$sha" "s3://anubot/builds/$sha"
