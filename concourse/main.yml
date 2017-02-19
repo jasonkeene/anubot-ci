@@ -6,6 +6,12 @@ resources:
     uri: https://github.com/jasonkeene/anubot
     branch: master
 
+- name: anubot-server
+  type: git
+  source:
+    uri: https://github.com/jasonkeene/anubot-server
+    branch: master
+
 - name: api-image
   type: docker-image
   source:
@@ -22,7 +28,7 @@ resources:
     - docker-images/api
 
 jobs:
-- name: test
+- name: test-client
   public: true
   plan:
   - get: anubot
@@ -32,7 +38,7 @@ jobs:
       image_resource:
         type: docker-image
         source:
-          repository: anubot/build
+          repository: node
           tag: latest
       platform: linux
       inputs:
@@ -46,43 +52,87 @@ jobs:
           set -e
 
           cd anubot
-          export GOPATH=$PWD
-          export PATH=$PWD/bin:$PWD/app/node_modules/.bin:$PATH
-          ./test.sh ci
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          scripts/test.sh ci
+
+- name: test-server
+  public: true
+  plan:
+  - get: anubot-server
+    trigger: true
+  - task: test
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot-server
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+
+          mkdir -p anubot-workspace/src/github.com/jasonkeene
+          cp -R anubot-server anubot-workspace/src/github.com/jasonkeene/
+
+          cd anubot-workspace
+          export GOPATH="$PWD"
+          export PATH="$PWD/bin:$PATH"
+          go get -u github.com/golang/dep/...
+
+          cd src/github.com/jasonkeene/anubot-server
+          dep ensure
+          scripts/test.sh ci
 
 - name: build
   public: true
   plan:
   - aggregate:
-    - get: anubot
+    - get: anubot-server
       trigger: true
       passed:
-      - test
+      - test-server
     - get: api-image-dockerfile
       trigger: true
-  - aggregate:
-    - task: build-api
-      config:
-        image_resource:
-          type: docker-image
-          source:
-            repository: anubot/build
-            tag: latest
-        platform: linux
-        inputs:
-        - name: anubot
-        outputs:
-        - name: api
-        run:
-          path: bash
-          args:
-          - -c
-          - |
-            #!/bin/bash
-            set -e
+  - task: build-api
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot-server
+      outputs:
+      - name: api
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
 
-            export GOPATH=$PWD/anubot
-            GOOS=linux GOARCH=amd64 go build -o api/api_linux_amd64 anubot/cmd/api
+          mkdir -p anubot-workspace/src/github.com/jasonkeene
+          cp -R anubot-server anubot-workspace/src/github.com/jasonkeene/
+
+          pushd anubot-workspace > /dev/null
+            export GOPATH="$PWD"
+            export PATH="$PWD/bin:$PATH"
+            go get -u github.com/golang/dep/...
+            pushd src/github.com/jasonkeene/anubot-server
+              dep ensure
+            popd
+          popd > /dev/null
+
+          GOOS=linux GOARCH=amd64 go build -o api/api_linux_amd64 github.com/jasonkeene/anubot-server/cmd/api
   - task: upload-artifacts
     config:
       image_resource:
@@ -92,7 +142,7 @@ jobs:
           tag: latest
       platform: linux
       inputs:
-      - name: anubot
+      - name: anubot-server
       - name: api
       params:
         AWS_ACCESS_KEY_ID: {{s3_access_key_id}}
@@ -105,7 +155,7 @@ jobs:
           #!/bin/bash
           set -e
 
-          pushd anubot > /dev/null
+          pushd anubot-server > /dev/null
             sha=$(git rev-parse @)
           popd > /dev/null
 
@@ -122,7 +172,7 @@ jobs:
           tag: latest
       platform: linux
       inputs:
-      - name: anubot
+      - name: anubot-server
       - name: api
       - name: api-image-dockerfile
       outputs:
@@ -140,7 +190,7 @@ jobs:
 
           cp api/api_linux_amd64 build-api-image/build/api
 
-          pushd anubot > /dev/null
+          pushd anubot-server > /dev/null
             sha=$(git rev-parse @)
           popd > /dev/null
           echo "$sha" > build-api-image/tag
@@ -155,7 +205,7 @@ jobs:
 - name: deploy
   public: true
   plan:
-  - get: anubot
+  - get: anubot-server
     trigger: true
     passed:
     - build
@@ -168,7 +218,7 @@ jobs:
           tag: latest
       platform: linux
       inputs:
-      - name: anubot
+      - name: anubot-server
       params:
         PROD_KEY: {{prod_key}}
       run:
@@ -179,7 +229,7 @@ jobs:
           #!/bin/bash
           set -e
 
-          pushd anubot > /dev/null
+          pushd anubot-server > /dev/null
             sha=$(git rev-parse @)
           popd > /dev/null
 
