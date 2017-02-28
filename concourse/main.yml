@@ -65,7 +65,7 @@ jobs:
       image_resource:
         type: docker-image
         source:
-          repository: anubot/build
+          repository: anubot/test
           tag: latest
       platform: linux
       inputs:
