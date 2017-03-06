@@ -206,7 +206,6 @@ jobs:
   public: true
   plan:
   - get: anubot-server
-    trigger: true
     passed:
     - build
   - task: deploy
