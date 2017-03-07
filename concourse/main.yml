@@ -12,6 +12,29 @@ resources:
     uri: https://github.com/jasonkeene/anubot-server
     branch: master
 
+- name: anubot-migrations
+  type: git
+  source:
+    uri: https://github.com/jasonkeene/anubot-server
+    branch: master
+    paths:
+    - store/migrations/*.sql
+
+- name: migrate-image
+  type: docker-image
+  source:
+    repository: anubot/migrate
+    username: {{docker_hub_username}}
+    password: {{docker_hub_password}}
+
+- name: migrate-image-dockerfile
+  type: git
+  source:
+    uri: https://github.com/jasonkeene/anubot-ci
+    branch: master
+    paths:
+    - docker-images/migrate
+
 - name: api-image
   type: docker-image
   source:
@@ -90,7 +113,87 @@ jobs:
           dep ensure
           scripts/test.sh ci
 
-- name: build
+- name: build-migrations
+  public: true
+  plan:
+  - aggregate:
+    - get: anubot-migrations
+      trigger: true
+    - get: migrate-image-dockerfile
+      trigger: true
+  - task: build-migrate-image
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot-migrations
+      - name: migrate-image-dockerfile
+      outputs:
+      - name: build-migrate-image
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+
+          mkdir -p build-migrate-image/build/migrations
+          cp -R migrate-image-dockerfile/docker-images/migrate/* build-migrate-image/build/
+          cp anubot-migrations/store/migrations/*.sql build-migrate-image/build/migrations/
+
+          pushd anubot-migrations > /dev/null
+            sha=$(git rev-parse @)
+          popd > /dev/null
+          echo "$sha" > build-migrate-image/tag
+  - put: migrate-image
+    params:
+      build: build-migrate-image/build
+      tag: build-migrate-image/tag
+      tag_as_latest: true
+      cache: true
+      cache_tag: latest
+
+- name: migrate
+  plan:
+  - get: anubot-migrations
+    passed:
+    - build-migrations
+  - task: migrate
+    config:
+      image_resource:
+        type: docker-image
+        source:
+          repository: anubot/build
+          tag: latest
+      platform: linux
+      inputs:
+      - name: anubot-migrations
+      params:
+        PROD_KEY: {{prod_key}}
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          #!/bin/bash
+          set -e
+
+          pushd anubot-migrations > /dev/null
+            sha=$(git rev-parse @)
+          popd > /dev/null
+
+          mkdir -p ~/.ssh
+          ssh-keyscan -Hp 42224 api.anubot.io >> ~/.ssh/known_hosts
+          echo "$PROD_KEY" > id_rsa
+          chmod 400 id_rsa
+          echo "MIGRATE_TAG=$sha" | ssh core@api.anubot.io -i id_rsa -p 42224 "cat > /home/core/migrate-env; sudo systemctl restart migrate"
+
+- name: build-server
   public: true
   plan:
   - aggregate:
@@ -202,13 +305,12 @@ jobs:
       cache: true
       cache_tag: latest
 
-- name: deploy
-  public: true
+- name: deploy-server
   plan:
   - get: anubot-server
     passed:
-    - build
-  - task: deploy
+    - build-server
+  - task: deploy-server
     config:
       image_resource:
         type: docker-image
@@ -233,7 +335,7 @@ jobs:
           popd > /dev/null
 
           mkdir -p ~/.ssh
-          ssh-keyscan -Hp 42224 anubot.io >> ~/.ssh/known_hosts
+          ssh-keyscan -Hp 42224 api.anubot.io >> ~/.ssh/known_hosts
           echo "$PROD_KEY" > id_rsa
           chmod 400 id_rsa
-          echo "API_TAG=$sha" | ssh core@anubot.io -i id_rsa -p 42224 "cat > /home/core/api-env; sudo systemctl restart api"
+          echo "API_TAG=$sha" | ssh core@api.anubot.io -i id_rsa -p 42224 "cat > /home/core/api-env; sudo systemctl restart api"
