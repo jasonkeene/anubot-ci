@@ -1,9 +1,5 @@
 FROM golang:latest
 
-RUN mkdir /migrations
-WORKDIR /migrations
-COPY migrations/*.sql /migrations/
-
 # install migrate tool
 RUN mkdir /tmpworkspace && \
     GOPATH=/tmpworkspace go get github.com/mattes/migrate && \
@@ -11,3 +7,8 @@ RUN mkdir /tmpworkspace && \
     rm -r /tmpworkspace
 
 CMD ["migrate", "up"]
+
+RUN mkdir /migrations
+WORKDIR /migrations
+
+COPY migrations/*.sql /migrations/
